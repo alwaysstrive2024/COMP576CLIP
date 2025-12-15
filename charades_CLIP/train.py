@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 import os
 import json
@@ -19,7 +17,6 @@ def infer_top3_segments(video_path, query, model, preprocess, device,
     Perform zero-shot inference for a single video-query pair.
     Returns the top-3 candidate segments after boundary expansion.
     """
-    # Encode text query
     text_tokens = clip.tokenize([query], truncate=True).to(device)
     with torch.no_grad():
         text_feat = model.encode_text(text_tokens).float()
@@ -58,7 +55,6 @@ def infer_top3_segments(video_path, query, model, preprocess, device,
     while i < T:
         start_time = timestamps[i]
         end_limit = start_time + window_size
-        # find last index j where timestamps[j] <= end_limit
         j = np.searchsorted(timestamps, end_limit, side='right') - 1
         if j >= i:
             seg_feats = img_feats[i:j+1]
@@ -66,33 +62,26 @@ def infer_top3_segments(video_path, query, model, preprocess, device,
             avg_feat /= np.linalg.norm(avg_feat)
             score = float(np.dot(avg_feat, text_vec))
             raw_cands.append({'i': i, 'j': j, 'score': score})
-        # advance by stride seconds
         next_time = start_time + stride
         i = np.searchsorted(timestamps, next_time, side='left')
 
     if not raw_cands:
         return None
 
-    # sort and keep top-3
     raw_cands.sort(key=lambda x: x['score'], reverse=True)
     top3_raw = raw_cands[:3]
 
-    # boundary expansion around peak-to-valley
     refined = []
     for cand in top3_raw:
         i, j, score = cand['i'], cand['j'], cand['score']
-        sims = (img_feats[i:j+1] @ text_vec)  # dot products
-        # normalized similarity sequence
+        sims = (img_feats[i:j+1] @ text_vec)  
         norm_sims = sims / np.linalg.norm(sims)
-        # find peak relative index
         peak_rel = int(np.argmax(norm_sims))
         peak_idx = i + peak_rel
 
-        # scan left to valley
         l = peak_idx
         while l > i and norm_sims[l-i] >= norm_sims[l-i-1]:
             l -= 1
-        # scan right to valley
         r = peak_idx
         while r < j and norm_sims[r-i] >= norm_sims[r-i+1]:
             r += 1
@@ -103,7 +92,6 @@ def infer_top3_segments(video_path, query, model, preprocess, device,
             'score': score
         })
 
-    # final sort and return
     refined.sort(key=lambda x: x['score'], reverse=True)
     return refined[:3]
 
@@ -121,11 +109,9 @@ def main(args):
     print(f"[INFO] Using device: {device}")
     model, preprocess = clip.load("ViT-B/32", device=device)
 
-    # Load annotations
     with open(args.ann, 'r') as f:
         annotations = json.load(f)
 
-    # Prepare output CSV directory
     out_dir = os.path.dirname(args.output_csv)
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
@@ -190,11 +176,7 @@ def main(args):
     pbar.close()
     csvfile.close()
 
-    # # Save the model after inference
-    # model_save_path = args.output_ckpt  # Path where you want to save the model
-    # os.makedirs(os.path.dirname(model_save_path), exist_ok=True)  # Ensure the directory exists
-    # torch.save(model.state_dict(), model_save_path)
-    # print(f"[INFO] Model saved to {model_save_path}")
+   
 
     print(f"[DONE] Results saved to {args.output_csv}")
 
@@ -209,8 +191,6 @@ if __name__ == "__main__":
                         help="Directory containing videos named <video_id>.mp4")
     parser.add_argument("--output_csv", required=True,
                         help="Path to output CSV file")
-    # parser.add_argument("--output_ckpt", required=True,
-    #                     help="Path to save the model checkpoint")
     parser.add_argument("--sample_rate", type=int,   default=5,
                         help="Frame sampling interval (frames)")
     parser.add_argument("--window_size", type=float, default=2.0,
